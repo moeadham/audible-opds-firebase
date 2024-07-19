@@ -14,4 +14,4 @@ kill $LOGS_PID
 if [ "$TEST_FAILED" = true ]; then
     exit 1
 fi
-sleep 10
+sleep 5

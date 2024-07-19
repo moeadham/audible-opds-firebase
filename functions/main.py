@@ -51,6 +51,69 @@ def refresh_audible_tokens(req: https_fn.Request) -> https_fn.Response:
             "status": "error"
         }), status=500, content_type="application/json")
 
-# if it fails with 
-# >  Error refreshing Audible tokens: 'Client' object has no attribute 'refresh_access_token'
-# it might just be that the refresh token is expired.
+
+@https_fn.on_request()
+def get_activation_bytes(req: https_fn.Request) -> https_fn.Response:
+    try:
+        # Parse the request body to get the auth data
+        auth_data = req.get_json().get("auth", {})
+        if not isinstance(auth_data, dict):
+            auth_data = {}
+
+        if not auth_data:
+            print("No auth data provided in the request body")
+            raise ValueError("No auth data provided in the request body")
+
+        # Create an Audible authenticator with the provided auth data
+        auth = audible.Authenticator.from_dict(auth_data)
+
+        # Get the activation bytes
+        activation_bytes = auth.get_activation_bytes()
+
+        # Return the activation bytes in the response
+        return https_fn.Response(json.dumps({
+            "message": "Activation bytes retrieved successfully",
+            "status": "success",
+            "activation_bytes": activation_bytes
+        }), content_type="application/json")
+
+    except Exception as e:
+        print(f"Error retrieving activation bytes: {str(e)}")
+        return https_fn.Response(json.dumps({
+            "message": f"Error retrieving activation bytes: {str(e)}",
+            "status": "error"
+        }), status=500, content_type="application/json")
+
+def custom_login_url_callback(login_url):
+    print(login_url)
+    return ""
+
+
+@https_fn.on_request()
+def get_login_url(req: https_fn.Request) -> https_fn.Response:
+    try:
+        # Parse the request body to get the country code
+        country_code = req.get_json().get("locale", "us")
+        print(country_code)
+        # Generate the login URL
+        auth = audible.Authenticator.from_login_external(
+            locale=country_code,)
+            #login_url_callback=custom_login_url_callback)
+        print(auth.to_dict())
+
+        # Return the login URL in the response
+        return https_fn.Response(json.dumps({
+            "message": "Login URL generated successfully",
+            "status": "success",
+            "login_url": auth.to_dict()
+        }), content_type="application/json")
+
+    except Exception as e:
+        print(f"Error generating login URL: {str(e)}")
+        return https_fn.Response(json.dumps({
+            "message": f"Error generating login URL: {str(e)}",
+            "status": "error"
+        }), status=500, content_type="application/json")
+
+# https://github.com/mkb79/Audible/blob/5ffe1aeee3092f75f0facf9fe594a64327d8a5aa/src/audible/login.py#L569
+# Likely need to do something like this to structure the URLs correctly.
