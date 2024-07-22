@@ -5,7 +5,7 @@ import path from 'path';
 
 chai.use(chaiHttp);
 const expect = chai.expect;
-const APP_URL = "http://127.0.0.1:5001/visibl-dev-ali/us-central1";
+const APP_URL = "http://127.0.0.1:5001/visibl-dev-ali/europe-west1";
 
 describe("test audible", () => {
     let auth;
@@ -66,6 +66,7 @@ describe("test audible", () => {
         // Save the updated auth data to audible_credentials.json
         const updatedAuth = result.updated_auth;
         auth = updatedAuth;
+        fs.writeFileSync('audible_credentials.json', JSON.stringify(auth, null, 2));
     });
     it(`test get_activation_bytes`, async () => {
         const response = await chai

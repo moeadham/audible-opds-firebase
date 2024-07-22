@@ -3,7 +3,7 @@ import chaiHttp from "chai-http";
 
 chai.use(chaiHttp);
 const expect = chai.expect;
-const APP_URL = "http://127.0.0.1:5001/visibl-dev-ali/us-central1";
+const APP_URL = "http://127.0.0.1:5001/visibl-dev-ali/europe-west1";
 
 describe("test audible", () => {
     it(`test get_login_url`, async () => {

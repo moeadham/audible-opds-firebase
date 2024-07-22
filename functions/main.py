@@ -12,10 +12,12 @@ import audible.localization
 from audible.register import register as register_device
 import httpx
 import base64
+import subprocess
+import os
 
 initialize_app()
 
-@https_fn.on_request()
+@https_fn.on_request(region="europe-west1")
 def refresh_audible_tokens(req: https_fn.Request) -> https_fn.Response:
     try:
         # Parse the request body to get the auth data
@@ -44,7 +46,7 @@ def refresh_audible_tokens(req: https_fn.Request) -> https_fn.Response:
         }), status=500, content_type="application/json")
 
 
-@https_fn.on_request()
+@https_fn.on_request(region="europe-west1")
 def get_activation_bytes(req: https_fn.Request) -> https_fn.Response:
     try:
         # Parse the request body to get the auth data
@@ -77,7 +79,7 @@ def get_activation_bytes(req: https_fn.Request) -> https_fn.Response:
         }), status=500, content_type="application/json")
 
 # Login via flask: https://github.com/mkb79/Audible/issues/76
-@https_fn.on_request()
+@https_fn.on_request(region="europe-west1")
 def get_login_url(req: https_fn.Request) -> https_fn.Response:
     try:
         # Parse the request body to get the country code
@@ -131,7 +133,7 @@ class Authenticator(audible.Authenticator):
         auth._update_attrs(**registration_data)
         return auth
 
-@https_fn.on_request()
+@https_fn.on_request(region="europe-west1")
 def do_login(req: https_fn.Request) -> https_fn.Response:
     try:
         # Parse the request body to get the country code
@@ -162,3 +164,87 @@ def do_login(req: https_fn.Request) -> https_fn.Response:
             "status": "error"
         }), status=500, content_type="application/json")
     
+
+@https_fn.on_request(region="europe-west1")
+def get_audible_version(req: https_fn.Request) -> https_fn.Response:
+    try:
+        # Execute the 'audible --version' command
+        result = subprocess.run(['audible', '--version'], capture_output=True, text=True)
+        
+        # Check if the command was successful
+        if result.returncode == 0:
+            version = result.stdout.strip()
+            return https_fn.Response(json.dumps({
+                "message": "Audible version retrieved successfully",
+                "status": "success",
+                "version": version
+            }), content_type="application/json")
+        else:
+            error_message = result.stderr.strip()
+            return https_fn.Response(json.dumps({
+                "message": f"Error retrieving Audible version: {error_message}",
+                "status": "error"
+            }), status=500, content_type="application/json")
+
+    except Exception as e:
+        print(f"Error executing 'audible --version': {str(e)}")
+        return https_fn.Response(json.dumps({
+            "message": f"Error executing 'audible --version': {str(e)}",
+            "status": "error"
+        }), status=500, content_type="application/json")
+
+# So do download the book, I think we want to:
+# 1. audible manage auth-file add (file)
+# 2. audible 
+
+@https_fn.on_request(region="europe-west1")
+def audible_download_file(req: https_fn.Request) -> https_fn.Response:
+    try:
+        country_code = req.get_json().get("country_code")
+        asin = req.get_json().get("asin")
+        auth_data = req.get_json().get("auth", {})
+        # Write the config.toml file
+        config_content = '''
+title = "Audible Config File"
+
+[APP]
+primary_profile = "audible"
+
+[profile.audible]
+auth_file = "audible.json"
+country_code = f"{country_code}"
+'''
+        config_path = 'audible-cli/config.toml'
+        with open(config_path, 'w') as config_file:
+            config_file.write(config_content)
+        
+        # Write the auth data to audible.json
+        auth_path = 'audible-cli/audible.json'
+        with open(auth_path, 'w') as auth_file:
+            json.dump(auth_data, auth_file, indent=2)
+        
+        # CONFIG_DIR_ENV=audible-cli audible download --aax --asin [ASIN] -q best -f asin_ascii --output-dir audible-cli/downloads/
+        print(f"Running command: CONFIG_DIR_ENV=audible-cli audible download --aax --asin {asin} -q best -f asin_ascii --output-dir audible-cli/downloads/")
+        result = subprocess.run(
+            ['audible', 'download', '--aax', '--asin', asin, '-q', 'best', '-f', 'asin_ascii', '--output-dir', 'audible-cli/downloads/'], 
+            capture_output=True, 
+            text=True, 
+            env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
+
+        if result.returncode == 0:
+            return https_fn.Response(json.dumps({
+                "message": "Audible file downloaded successfully",
+                "status": "success",
+                "output": result.stdout
+            }), content_type="application/json")
+        else:
+            return https_fn.Response(json.dumps({
+                "message": f"Error downloading audible file: {result.stderr}",
+                "status": "error"
+            }), status=500, content_type="application/json")
+    except Exception as e:
+        print(f"Error downloading audible file: {str(e)}")
+        return https_fn.Response(json.dumps({
+            "message": f"Error downloading audible file: {str(e)}",
+            "status": "error"
+        }), status=500, content_type="application/json")
