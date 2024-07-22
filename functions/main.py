@@ -3,7 +3,7 @@
 # Deploy with `firebase deploy`
 
 from firebase_functions import https_fn
-from firebase_admin import initialize_app
+from firebase_admin import initialize_app, storage
 import json
 import audible
 from urllib.parse import parse_qs, urlencode
@@ -149,12 +149,14 @@ def do_login(req: https_fn.Request) -> https_fn.Response:
             serial=serial,
             country_code=country_code
         )
+        activation_bytes = auth.get_activation_bytes()
 
         # Return the auth JSON
         return https_fn.Response(json.dumps({
             "message": "Login URL generated successfully",
             "status": "success",
-            "auth": auth.to_dict()
+            "auth": auth.to_dict(),
+            "activation_bytes": activation_bytes
         }), content_type="application/json")
 
     except Exception as e:
@@ -199,12 +201,14 @@ def get_audible_version(req: https_fn.Request) -> https_fn.Response:
 
 @https_fn.on_request(region="europe-west1")
 def audible_download_file(req: https_fn.Request) -> https_fn.Response:
-    try:
-        country_code = req.get_json().get("country_code")
-        asin = req.get_json().get("asin")
-        auth_data = req.get_json().get("auth", {})
-        # Write the config.toml file
-        config_content = '''
+    country_code = req.get_json().get("country_code")
+    asin = req.get_json().get("asin")
+    auth_data = req.get_json().get("auth", {})
+    bucket = req.get_json().get("bucket")
+    path = req.get_json().get("path")
+
+    # Write the config.toml file
+    config_content = '''
 title = "Audible Config File"
 
 [APP]
@@ -214,37 +218,68 @@ primary_profile = "audible"
 auth_file = "audible.json"
 country_code = f"{country_code}"
 '''
-        config_path = 'audible-cli/config.toml'
-        with open(config_path, 'w') as config_file:
-            config_file.write(config_content)
-        
-        # Write the auth data to audible.json
-        auth_path = 'audible-cli/audible.json'
-        with open(auth_path, 'w') as auth_file:
-            json.dump(auth_data, auth_file, indent=2)
-        
-        # CONFIG_DIR_ENV=audible-cli audible download --aax --asin [ASIN] -q best -f asin_ascii --output-dir audible-cli/downloads/
-        print(f"Running command: CONFIG_DIR_ENV=audible-cli audible download --aax --asin {asin} -q best -f asin_ascii --output-dir audible-cli/downloads/")
-        result = subprocess.run(
-            ['audible', 'download', '--aax', '--asin', asin, '-q', 'best', '-f', 'asin_ascii', '--output-dir', 'audible-cli/downloads/'], 
-            capture_output=True, 
-            text=True, 
-            env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
+    config_path = 'audible-cli/config.toml'
+    with open(config_path, 'w') as config_file:
+        config_file.write(config_content)
+    
+    # Write the auth data to audible.json
+    auth_path = 'audible-cli/audible.json'
+    with open(auth_path, 'w') as auth_file:
+        json.dump(auth_data, auth_file, indent=2)
+    
+    # CONFIG_DIR_ENV=audible-cli audible download --aax --asin [ASIN] -q best -f asin_ascii --output-dir audible-cli/downloads/
 
-        if result.returncode == 0:
-            return https_fn.Response(json.dumps({
-                "message": "Audible file downloaded successfully",
-                "status": "success",
-                "output": result.stdout
-            }), content_type="application/json")
-        else:
-            return https_fn.Response(json.dumps({
-                "message": f"Error downloading audible file: {result.stderr}",
-                "status": "error"
-            }), status=500, content_type="application/json")
+    command = ['audible', 'download', '--aax', '--asin', asin, '-q', 'best', '--filename-mode', 'asin_ascii', '--output-dir', 'audible-cli/downloads/']
+    print(f"Running command: {command}")
+    try:
+        result = subprocess.run(
+            command, 
+        capture_output=True, 
+        text=True, 
+        env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
     except Exception as e:
         print(f"Error downloading audible file: {str(e)}")
         return https_fn.Response(json.dumps({
-            "message": f"Error downloading audible file: {str(e)}",
+        "message": f"Error downloading audible file: {str(e)}",
+        "status": "error"
+    }), status=500, content_type="application/json")
+
+    if result.returncode == 0:
+        # Upload the file to storage bucket.
+        # bucket = storage.bucket(f"gs://{bucket}")
+        bucket = storage.bucket(bucket)
+        # Find the downloaded file
+        local_file_dir = 'audible-cli/downloads/'
+        for filename in os.listdir(local_file_dir):
+            if filename.startswith(asin) and filename.endswith('.aax'):
+                local_file_path = os.path.join(local_file_dir, filename)
+                break
+        else:
+            print(f"No .aax file found for ASIN {asin}")
+            raise FileNotFoundError(f"No .aax file found for ASIN {asin}")
+        
+        # Create the full path in the storage bucket
+        blob = bucket.blob(f'{path}')
+        print(f"Uploading {local_file_path} to {blob.name}")
+        blob.upload_from_filename(local_file_path)
+        # Check if the blob exists after upload
+        print(f"Checking if blob {blob.name} exists:")
+        print(blob.exists())
+        if blob.exists():
+            return https_fn.Response(json.dumps({
+                "message": "Audible file downloaded and uploaded successfully",
+                "status": "success",
+                "output": result.stdout,
+                "storage_path": blob.name
+            }), content_type="application/json")
+        else:
+            return https_fn.Response(json.dumps({
+                "message": "Error: File was downloaded but not uploaded to storage",
+                "status": "error"
+            }), status=500, content_type="application/json")
+    else:
+        return https_fn.Response(json.dumps({
+            "message": f"Error downloading audible file: {result.stderr}",
             "status": "error"
         }), status=500, content_type="application/json")
+

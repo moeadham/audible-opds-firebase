@@ -1,3 +1,5 @@
 *.local
 venv/
 __pycache__/
+audible-cli/downloads/
+.DS_Store
