@@ -1,47 +1,53 @@
 import chai from "chai";
 import chaiHttp from "chai-http";
+import fs from 'fs';
+import path from 'path';
 
 chai.use(chaiHttp);
 const expect = chai.expect;
 const APP_URL = "http://127.0.0.1:5001/visibl-dev-ali/us-central1";
 
 describe("test audible", () => {
-    it(`test get_login_url for Canada`, async () => {
+    let auth;
+    it(`test do_login`, async () => {
+        let countryCode = process.env.COUNTRY_CODE
+        let code_verifier = process.env.CODE_VERIFIER
+        const urlPath = path.join(process.cwd(), 'response_url.txt');
+        let response_url = fs.readFileSync(urlPath, 'utf8').trim();
+        let serial = process.env.SERIAL
+
+        console.log(`COUNTRY_CODE: ${countryCode}`);
+        console.log(`CODE_VERIFIER: ${code_verifier}`);
+        console.log(`RESPONSE_URL: ${response_url}`);
+        console.log(`SERIAL: ${serial}`);
+
         const response = await chai
             .request(APP_URL)
-            .post("/get_login_url")
-            .send({ locale: 'ca' });
+            .post("/do_login")
+            .send({
+                code_verifier: code_verifier,
+                response_url: response_url,
+                serial: serial,
+                country_code: countryCode
+            });
 
         expect(response).to.have.status(200);
         const result = response.body;
 
         expect(result).to.have.property("message");
         expect(result.message).to.equal("Login URL generated successfully");
-        expect(result).to.have.property("login_url");
-        expect(result.login_url).to.be.a('string');
-        expect(result.login_url).to.include('audible.ca');
-
-        console.log("Login URL for Canada:", result.login_url);
-    });
-    it(`test on_request_example`, async () => {    
-        const response = await chai
-            .request(APP_URL)
-            .post("/on_request_example")
-            .send({});
-    
-        expect(response).to.have.status(200);
-        const result = response.body;
-    
-        console.log(result);
-        expect(result).to.have.property("message");
+        expect(result).to.have.property("status");
+        expect(result.status).to.equal("success");
+        expect(result).to.have.property("auth");
+        expect(result.auth).to.be.an('object');
+        
+        // Check for essential properties in the login_url object
+        expect(result.auth).to.have.property("access_token");
+        expect(result.auth).to.have.property("refresh_token");
+        expect(result.auth).to.have.property("expires");
+        auth = result.auth;
     });
     it(`test refresh_audible_tokens`, async () => {
-        const fs = await import('fs');
-        const path = await import('path');
-
-        const credentialsPath = path.join(process.cwd(), 'audible_credentials.json');
-        const auth = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
-
         const response = await chai
             .request(APP_URL)
             .post("/refresh_audible_tokens")
@@ -59,20 +65,9 @@ describe("test audible", () => {
         expect(Number(result.updated_auth.expires)).to.be.greaterThan(Number(auth.expires));
         // Save the updated auth data to audible_credentials.json
         const updatedAuth = result.updated_auth;
-        fs.writeFileSync(credentialsPath, JSON.stringify(updatedAuth, null, 2));
-        console.log("Updated auth data saved to audible_credentials.json");
-
-        // Verify that the file was updated
-        const newAuth = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
-        expect(newAuth).to.deep.equal(updatedAuth);
+        auth = updatedAuth;
     });
     it(`test get_activation_bytes`, async () => {
-        const fs = await import('fs');
-        const path = await import('path');
-
-        const credentialsPath = path.join(process.cwd(), 'audible_credentials.json');
-        const auth = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
-
         const response = await chai
             .request(APP_URL)
             .post("/get_activation_bytes")
@@ -90,6 +85,5 @@ describe("test audible", () => {
 
         console.log("Activation bytes:", result.activation_bytes);
     });
-
 });
     
