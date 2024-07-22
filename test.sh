@@ -5,7 +5,7 @@ sleep 10
 
 echo "running tests"
 cd test
-mocha test1.js --timeout 99999999999 --bail --reporter spec || TEST_FAILED=true
+mocha loginUrl.js --timeout 99999999999 --bail --reporter spec || TEST_FAILED=true
 # Prompt for environment variables
 read -p "Enter COUNTRY_CODE: " COUNTRY_CODE
 read -p "Enter CODE_VERIFIER: " CODE_VERIFIER
@@ -25,7 +25,10 @@ export CODE_VERIFIER
 export SERIAL
 
 # Run the second test file
-mocha test2.js --timeout 99999999999 --bail --reporter spec || TEST_FAILED=true
+mocha auth.js --timeout 99999999999 --bail --reporter spec || TEST_FAILED=true
+
+# Run the second test file
+mocha storage.js --timeout 99999999999 --bail --reporter spec || TEST_FAILED=true
 
 
 # Stop the logs stream
