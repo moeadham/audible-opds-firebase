@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import dotenv from "dotenv";
 
-const ENV = "TEST1";
+const ENV = "TEST";
 
 let ENV_PATH = `${process.cwd()}/../functions/.env.local`;
 let APP_URL = "http://127.0.0.1:5001/visibl-dev-ali/europe-west1";
