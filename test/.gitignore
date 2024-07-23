@@ -5,3 +5,4 @@ audible_credentials.json
 response_url.txt
 
 .DS_Store
+bin/

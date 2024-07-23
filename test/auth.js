@@ -24,6 +24,7 @@ describe("test audible", () => {
         const response = await chai
             .request(APP_URL)
             .post("/do_login")
+            .set("API-KEY", "LOCAL_API_KEY")
             .send({
                 code_verifier: code_verifier,
                 response_url: response_url,
@@ -35,11 +36,17 @@ describe("test audible", () => {
         const result = response.body;
 
         expect(result).to.have.property("message");
-        expect(result.message).to.equal("Login URL generated successfully");
+        expect(result.message).to.equal("Login process completed successfully");
         expect(result).to.have.property("status");
         expect(result.status).to.equal("success");
         expect(result).to.have.property("auth");
         expect(result.auth).to.be.an('object');
+        // Check for activation_bytes in the response
+        expect(result.auth).to.have.property("activation_bytes");
+        expect(result.auth.activation_bytes).to.be.a('string');
+        expect(result.auth.activation_bytes).to.have.lengthOf(8);
+
+        console.log("Activation bytes:", result.auth.activation_bytes);
         
         // Check for essential properties in the login_url object
         expect(result.auth).to.have.property("access_token");
@@ -52,6 +59,7 @@ describe("test audible", () => {
             .request(APP_URL)
             .post("/refresh_audible_tokens")
             .set('Content-Type', 'application/json')
+            .set("API-KEY", "LOCAL_API_KEY")
             .send(JSON.stringify({auth}));
 
         expect(response).to.have.status(200);
@@ -73,6 +81,7 @@ describe("test audible", () => {
             .request(APP_URL)
             .post("/get_activation_bytes")
             .set('Content-Type', 'application/json')
+            .set("API-KEY", "LOCAL_API_KEY")
             .send(JSON.stringify({auth}));
 
         expect(response).to.have.status(200);
