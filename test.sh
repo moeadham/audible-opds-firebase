@@ -27,6 +27,8 @@ export SERIAL
 # Run the second test file
 mocha auth.js --timeout 99999999999 --bail --reporter spec || TEST_FAILED=true
 
+mocha library.js
+
 # Run the second test file
 mocha downloadAndStore.js --timeout 99999999999 --bail --reporter spec || TEST_FAILED=true
 

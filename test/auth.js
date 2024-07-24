@@ -2,10 +2,16 @@ import chai from "chai";
 import chaiHttp from "chai-http";
 import fs from 'fs';
 import path from 'path';
+import dotenv from "dotenv";
+
+let ENV_PATH = `${process.cwd()}/../functions/.env.local`;
+
+dotenv.config({ path: ENV_PATH });
 
 chai.use(chaiHttp);
 const expect = chai.expect;
-const APP_URL = "http://127.0.0.1:5001/visibl-dev-ali/europe-west1";
+const APP_URL = process.env.APP_URL;
+const API_KEY = process.env.API_KEY;
 
 describe("test audible", () => {
     let auth;
@@ -24,7 +30,7 @@ describe("test audible", () => {
         const response = await chai
             .request(APP_URL)
             .post("/do_login")
-            .set("API-KEY", "LOCAL_API_KEY")
+            .set("API-KEY", API_KEY)
             .send({
                 code_verifier: code_verifier,
                 response_url: response_url,
@@ -59,7 +65,7 @@ describe("test audible", () => {
             .request(APP_URL)
             .post("/refresh_audible_tokens")
             .set('Content-Type', 'application/json')
-            .set("API-KEY", "LOCAL_API_KEY")
+            .set("API-KEY", API_KEY)
             .send(JSON.stringify({auth}));
 
         expect(response).to.have.status(200);
@@ -81,7 +87,7 @@ describe("test audible", () => {
             .request(APP_URL)
             .post("/get_activation_bytes")
             .set('Content-Type', 'application/json')
-            .set("API-KEY", "LOCAL_API_KEY")
+            .set("API-KEY", API_KEY)
             .send(JSON.stringify({auth}));
 
         expect(response).to.have.status(200);

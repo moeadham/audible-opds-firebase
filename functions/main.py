@@ -19,6 +19,7 @@ import subprocess
 import os
 import sys
 import traceback
+import re
 
 API_KEY = StringParam("API_KEY")
 ENVIRONEMENT = StringParam("ENVIRONEMENT")
@@ -254,7 +255,6 @@ def get_ffmpeg_path():
         return f"{get_local_file_dir()}ffmpeg"
 
 def convert_aaxc_to_m4b(asin, key, iv):
-    # ffmpeg -y -activation_bytes [activation_bytes] -i  './[filename].aax' -codec copy '[filename].m4b'
     ffmpeg = get_ffmpeg_path()
     command = [ffmpeg, '-y', '-audible_key', key, '-audible_iv', iv, '-i', f"{get_local_file_dir()}{asin}.aaxc", '-codec', 'copy', f"{get_local_file_dir()}{asin}.m4b"]
     print(f"Running command: {command}")
@@ -265,6 +265,27 @@ def convert_aaxc_to_m4b(asin, key, iv):
         env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
     return result
 
+def get_ffmpeg_info(asin):
+    ffmpeg = get_ffmpeg_path()
+    command = [ffmpeg, '-i', f"{get_local_file_dir()}{asin}.m4b", '-f', 'ffmetadata', '-hide_banner']
+    print(f"Running command: {command}")
+    result = subprocess.run(
+            command, 
+        capture_output=True, 
+        text=True, 
+        env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
+    return result
+
+def get_ffmpeg_art(asin):
+    ffmpeg = get_ffmpeg_path()
+    command = [ffmpeg, '-y', '-i', f"{get_local_file_dir()}{asin}.m4b", '-an', '-vcodec', 'copy', f"{get_local_file_dir()}{asin}.jpg", '-hide_banner']
+    print(f"Running command: {command}")
+    result = subprocess.run(
+            command, 
+        capture_output=True, 
+        text=True, 
+        env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
+    return result
 
 
 @https_fn.on_request(region="europe-west1")
@@ -277,7 +298,7 @@ def dev_upload_ffmpeg(req: https_fn.Request) -> https_fn.Response:
         }), status=403, content_type="application/json")
 
     try:
-        bucket_name = "visibl-dev-ali"
+        bucket_name = req.get_json().get("bucket")
         local_ffmpeg_path = "../test/bin/ffmpeg"
         destination_blob_name = "bin/ffmpeg"
 
@@ -392,7 +413,23 @@ def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
         m4b_blob = upload_to_storage(bucket_name, path, asin, ".m4b")
         logger.info(f"Uploading aaxc file to storage")
         aaxc_blob = upload_to_storage(bucket_name, path, asin, ".aaxc")
-        if m4b_blob.exists() and aaxc_blob.exists():
+
+        logger.info("Generating metadata from m4b info and Audible details")
+        ffmpeg_info_result = get_ffmpeg_info(asin)
+        metadata = ffmpeg_info_to_json(ffmpeg_info_result.stderr, book)
+        # Write metadata to JSON file
+        try:
+            with open(f"{get_local_file_dir()}{asin}.json", 'w') as metadata_file:
+                json.dump(metadata, metadata_file, indent=2)
+            logger.debug(f"Metadata successfully written to {asin}.json")
+        except IOError as e:
+            logger.error(f"Error writing metadata to file: {str(e)}")
+        json_blob = upload_to_storage(bucket_name, path, asin, ".json")
+
+        get_ffmpeg_art(asin)
+        art_blob = upload_to_storage(bucket_name, path, asin, ".jpg")
+
+        if m4b_blob.exists() and aaxc_blob.exists() and json_blob.exists() and art_blob.exists():
             logger.info(f"Successfully processed and uploaded files for ASIN: {asin}")
             return https_fn.Response(json.dumps({
                 "message": "Audible file downloaded and uploaded successfully",
@@ -400,7 +437,8 @@ def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
                 "download_status": status,
                 "aaxc_path": filename,
                 "licence": decrypted_voucher,
-                "m4b_path": m4b_blob.name
+                "m4b_path": m4b_blob.name,
+                "metadata": metadata
             }), content_type="application/json")
     else:
         logger.error(f"Error getting license response for ASIN: {asin}")
@@ -408,3 +446,148 @@ def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
             "message": f"Error getting license response for {asin}",
             "status": "error"
         }), status=500, content_type="application/json")
+
+def ffmpeg_info_to_json(ffmpeg_info, library_data):
+    # Initialize the result dictionary
+    result = {}
+
+    # Extract metadata
+    metadata = re.search(r'Metadata:(.*?)Duration:', ffmpeg_info, re.DOTALL)
+    if metadata:
+        metadata = metadata.group(1).strip().split('\n')
+        for line in metadata:
+            key, value = line.split(':', 1)
+            key = key.strip()
+            value = value.strip()
+            if key == 'title':
+                # Remove "(Unabridged)" from the title and strip whitespace
+                value = value.replace("(Unabridged)", "").strip()
+                result['title'] = value
+            elif key == 'artist':
+                result['author'] = [author.strip() for author in value.split(',')]
+            elif key == 'date':
+                result['year'] = value
+
+    # Get details from the audible catalogue if it is available.
+    if library_data["release_date"]:
+        result['year'] = library_data["release_date"].split("-")[0]
+    if library_data['merchandising_summary']:
+        result['description'] = library_data['merchandising_summary']
+    if library_data['title']:
+        result['title'] = library_data['title']
+    if library_data['subtitle']:
+        result['subtitle'] = library_data['subtitle']
+    if library_data['format_type'] == 'unabridged':
+        result["abridged"] = False
+    if library_data['asin']:
+        result['asin'] = library_data['asin']
+    
+    # Extract bitrate
+    bitrate = re.search(r'bitrate: (\d+) kb/s', ffmpeg_info)
+    if bitrate:
+        result['bitrate_kbs'] = int(bitrate.group(1))
+
+    # Extract codec
+    codec = re.search(r'Audio: (\w+)', ffmpeg_info)
+    if codec:
+        result['codec'] = codec.group(1)
+
+    # Extract chapters
+    chapters = re.findall(r'Chapter #0:(\d+): start (\d+\.\d+), end (\d+\.\d+)(?:\s+Metadata:\s+title\s+:\s+(.+))?', ffmpeg_info)
+    result['chapters'] = {}
+    for chapter in chapters:
+        chapter_num, start, end, title = chapter
+        result['chapters'][chapter_num] = {
+            'startTime': float(start),
+            'endTime': float(end),
+        }
+        if title:
+            result['chapters'][chapter_num]['title'] = title.strip()
+
+    # Set length to the end time of the last chapter
+    if chapters:
+        result['length'] = float(chapters[-1][2])
+
+    return result
+
+
+@https_fn.on_request(region="europe-west1", memory=4096, timeout_sec=540)
+@require_api_key
+def audible_get_library(req: https_fn.Request) -> https_fn.Response:
+    auth_data = req.get_json().get("auth", {})
+    auth = audible.Authenticator.from_dict(auth_data)
+    client = audible.Client(auth)
+    library = client.get(
+        "1.0/library",
+        num_results=1000,
+        response_groups="product_desc, product_attrs",
+        sort_by="-PurchaseDate"
+    )
+    
+    library_json = []
+    for book in library["items"]:
+        library_json.append(book_to_opds_publication(book))
+    return https_fn.Response(json.dumps({
+        "library": library_json,
+        "status": "success"
+    }), content_type="application/json")
+    # now you need to make this like opds. We also need album art.
+    # https://test.opds.io/2.0/home.json
+    # https://readium.org/webpub-manifest/examples/Flatland/manifest.json
+
+
+def book_to_opds_publication(book):
+    publication = {
+        "metadata": {
+            "@type": "http://schema.org/Audiobook",
+        },
+        "links": [
+            {
+                "rel": "http://opds-spec.org/acquisition",
+                "type": "application/audiobook+json"
+            }
+        ],
+        # "images": [
+        #     {
+        #         "type": "image/jpeg",
+        #         "rel": "http://opds-spec.org/image"
+        #     }
+        # ]
+    }
+
+    if "title" in book:
+        publication["metadata"]["title"] = book["title"]
+    if "authors" in book and book["authors"]:
+        publication["metadata"]["author"] = {
+            "name": book["authors"][0].get("name"),
+            "sortAs": book["authors"][0].get("name")
+        }
+    if "asin" in book:
+        publication["metadata"]["identifier"] = book["asin"]
+        publication["links"][0]["href"] = f"https://www.audible.com/pd/{book['asin']}"
+    if "language" in book:
+        publication["metadata"]["language"] = book["language"]
+    if "purchase_date" in book:
+        publication["metadata"]["modified"] = book["purchase_date"]
+    if "release_date" in book:
+        publication["metadata"]["published"] = book["release_date"]
+    if "publisher_name" in book:
+        publication["metadata"]["publisher"] = book["publisher_name"]
+    if "runtime_length_min" in book:
+        publication["metadata"]["duration"] = f"{book['runtime_length_min']} minutes"
+    if "merchandising_summary" in book:
+        publication["metadata"]["description"] = book["merchandising_summary"]
+    
+    if "series" in book and book["series"]:
+        publication["metadata"]["belongsTo"] = {
+            "series": {
+                "name": book["series"][0].get("title"),
+                "position": book["series"][0].get("sequence")
+            }
+        }
+    
+    # Remove any None values from the metadata
+    publication["metadata"] = {k: v for k, v in publication["metadata"].items() if v is not None}
+    
+    return publication
+

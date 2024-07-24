@@ -7,16 +7,19 @@ import dotenv from "dotenv";
 const ENV = "TEST";
 
 let ENV_PATH = `${process.cwd()}/../functions/.env.local`;
-let APP_URL = "http://127.0.0.1:5001/visibl-dev-ali/europe-west1";
+
 
 if (ENV != "TEST") {
-  ENV_PATH = `${process.cwd()}/../functions/.env.visibl-dev-ali`;
+  ENV_PATH = `${process.cwd()}/../functions/.env.visibl-dev`;
   dotenv.config({ path: ENV_PATH });
   APP_URL = process.env.APP_URL;
 } else {
   dotenv.config({ path: ENV_PATH });
 }
 let BUCKET_NAME = process.env.BUCKET_NAME
+let APP_URL = process.env.APP_URL
+let API_KEY = process.env.API_KEY
+let TEST_ASIN = "B072LK1GSN"//"B0711P9C1V"//"B08DJC7DQV"
 
 chai.use(chaiHttp);
 const expect = chai.expect;
@@ -27,8 +30,10 @@ describe("test audible", () => {
       const response = await chai
         .request(APP_URL)
         .post("/dev_upload_ffmpeg")
-        .set("API-KEY", process.env.API_KEY)
-        .send({});
+        .set("API-KEY", API_KEY)
+        .send({
+          bucket: BUCKET_NAME,
+        });
 
       expect(response).to.have.status(200);
       const result = response.body;
@@ -39,7 +44,6 @@ describe("test audible", () => {
       expect(result.status).to.equal("success");
       expect(result).to.have.property("destination");
       expect(result.destination).to.be.a("string");
-      expect(result.destination).to.equal("gs://visibl-dev-ali/bin/ffmpeg");
 
       console.log("FFmpeg upload destination:", result.destination);
     });
@@ -49,15 +53,15 @@ describe("test audible", () => {
     // Read the auth file
     const authFilePath = path.join(process.cwd(), "audible_credentials.json");
     const authData = JSON.parse(fs.readFileSync(authFilePath, "utf8"));
-    const asin = "B08DJC7DQV";
+
     const response = await chai
       .request(APP_URL)
       .post("/audible_download_aaxc")
-      .set("API-KEY", process.env.API_KEY)
+      .set("API-KEY", API_KEY)
       .send({
         country_code: "ca",
         auth: authData,
-        asin: asin,
+        asin: TEST_ASIN,
         bucket: BUCKET_NAME,
         path: `UserData/uid/Uploads/AudibleRaw/`,
       });
@@ -74,11 +78,29 @@ describe("test audible", () => {
     expect(result.download_status).to.be.a("string");
     expect(result).to.have.property("aaxc_path");
     expect(result.aaxc_path).to.be.a("string");
-    expect(result.aaxc_path).to.include(`${asin}.aaxc`);
+    expect(result.aaxc_path).to.include(`${TEST_ASIN}.aaxc`);
+    expect(result).to.have.property("metadata");
+    expect(result.metadata).to.be.an('object');
+    expect(result.metadata).to.have.property('title');
+    expect(result.metadata).to.have.property('author').that.is.an('array');
+    expect(result.metadata).to.have.property('year');
+    expect(result.metadata).to.have.property('bitrate_kbs').that.is.a('number');
+    expect(result.metadata).to.have.property('codec');
+    expect(result.metadata).to.have.property('chapters').that.is.an('object');
+    expect(result.metadata).to.have.property('length').that.is.a('number');
+
+    // Check structure of a chapter
+    const firstChapterKey = Object.keys(result.metadata.chapters)[0];
+    const firstChapter = result.metadata.chapters[firstChapterKey];
+    expect(firstChapter).to.have.property('startTime').that.is.a('number');
+    expect(firstChapter).to.have.property('endTime').that.is.a('number');
+    // Note: 'title' is optional for chapters, so we don't check for it
+
+    //console.log("Metadata:", JSON.stringify(result.metadata, null, 2));
     console.log("AAXC path:", result.aaxc_path);
     console.log("Download status:", result.download_status);
   });
-  const DELETE_FILES = true;
+  const DELETE_FILES = false;
   if (DELETE_FILES) {
     it("test delete downloaded files", async () => {
       const downloadsPath = path.join(

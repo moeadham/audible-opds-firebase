@@ -1,9 +1,13 @@
 import chai from "chai";
 import chaiHttp from "chai-http";
+import dotenv from "dotenv";
+let ENV_PATH = `${process.cwd()}/../functions/.env.local`;
 
+dotenv.config({ path: ENV_PATH });
 chai.use(chaiHttp);
 const expect = chai.expect;
-const APP_URL = "http://127.0.0.1:5001/visibl-dev-ali/europe-west1";
+const APP_URL = process.env.APP_URL;
+const API_KEY = process.env.API_KEY;
 
 describe("test audible", () => {
     it(`test get_login_url with wrong API key`, async () => {
@@ -27,7 +31,7 @@ describe("test audible", () => {
         const response = await chai
             .request(APP_URL)
             .post("/get_login_url")
-            .set("API-KEY", "LOCAL_API_KEY")
+            .set("API-KEY", API_KEY)
             .send({ country_code: countryCode });
 
         expect(response).to.have.status(200);
