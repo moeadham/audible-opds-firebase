@@ -1,3 +1,6 @@
 *.local
 venv/
 __pycache__/
+bin/downloads/
+.DS_Store
+.env.*
