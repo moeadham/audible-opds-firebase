@@ -514,6 +514,7 @@ def ffmpeg_info_to_json(ffmpeg_info, library_data):
 @require_api_key
 def audible_get_library(req: https_fn.Request) -> https_fn.Response:
     auth_data = req.get_json().get("auth", {})
+    request_type = req.get_json().get("type", "opds")
     auth = audible.Authenticator.from_dict(auth_data)
     client = audible.Client(auth)
     library = client.get(
@@ -524,9 +525,15 @@ def audible_get_library(req: https_fn.Request) -> https_fn.Response:
     )
     
     library_json = []
+
     for book in library["items"]:
-        print(f"ASIN: {book.get('asin', 'N/A')}, SKU: {book.get('sku', 'N/A')}, SKU Lite: {book.get('sku_lite', 'N/A')}, Title: {book.get('title', 'N/A')}")
-        library_json.append(book_to_opds_publication(book))
+        if request_type != "raw":
+                print(f"ASIN: {book.get('asin', 'N/A')}, SKU: {book.get('sku', 'N/A')}, SKU Lite: {book.get('sku_lite', 'N/A')}, Title: {book.get('title', 'N/A')}")
+                library_json.append(book_to_opds_publication(book))
+        else:
+            # Remove any null keys from the book dictionary
+            book = {k: v for k, v in book.items() if v is not None}
+            library_json.append(book)
     return https_fn.Response(json.dumps({
         "library": library_json,
         "status": "success"
