@@ -8,15 +8,14 @@ chai.use(chaiHttp);
 const expect = chai.expect;
 const APP_URL = process.env.APP_URL;
 const API_KEY = process.env.API_KEY;
-
+const COUNTRY_CODE = "ca"
 describe("test audible", () => {
     it(`test get_login_url with wrong API key`, async () => {
-        let countryCode = "ca"
         const response = await chai
             .request(APP_URL)
             .post("/get_login_url")
             .set("API-KEY", "WRONG_API_KEY")
-            .send({ country_code: countryCode });
+            .send({ country_code: COUNTRY_CODE });
 
         expect(response).to.have.status(401);
         const result = response.body;
@@ -27,12 +26,11 @@ describe("test audible", () => {
         expect(result.status).to.equal("error");
     });
     it(`test get_login_url`, async () => {
-        let countryCode = "ca"
         const response = await chai
             .request(APP_URL)
             .post("/get_login_url")
             .set("API-KEY", API_KEY)
-            .send({ country_code: countryCode });
+            .send({ country_code: COUNTRY_CODE });
 
         expect(response).to.have.status(200);
         const result = response.body;
@@ -43,8 +41,8 @@ describe("test audible", () => {
         expect(result).to.have.property("code_verifier");
         expect(result).to.have.property("serial");
         expect(result.login_url).to.be.a('string');
-        expect(result.login_url).to.include('amazon.ca');
-        console.log(`COUNTRY_CODE: ${countryCode}`);
+        expect(result.login_url).to.include('amazon.co.uk');
+        console.log(`COUNTRY_CODE: ${COUNTRY_CODE}`);
         console.log(`CODE_VERIFIER: ${result.code_verifier}`);
         console.log(`SERIAL: ${result.serial}`);
         console.log(`LOGIN_URL: ${result.login_url}`);

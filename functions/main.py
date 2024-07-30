@@ -358,7 +358,7 @@ def download_file(url, filename):
                 f.write(chunck)
     return filename
 
-@https_fn.on_request(region="europe-west1", memory=4096, timeout_sec=540)
+@https_fn.on_request(region="europe-west1", memory=4096, timeout_sec=540, concurrency=1)
 @require_api_key
 def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
     logger.info(f"Starting audible_download_aaxc function")
@@ -510,8 +510,7 @@ def ffmpeg_info_to_json(ffmpeg_info, library_data):
 
     return result
 
-
-@https_fn.on_request(region="europe-west1", memory=4096, timeout_sec=540)
+@https_fn.on_request(region="europe-west1")
 @require_api_key
 def audible_get_library(req: https_fn.Request) -> https_fn.Response:
     auth_data = req.get_json().get("auth", {})
@@ -526,6 +525,7 @@ def audible_get_library(req: https_fn.Request) -> https_fn.Response:
     
     library_json = []
     for book in library["items"]:
+        print(f"ASIN: {book.get('asin', 'N/A')}, SKU: {book.get('sku', 'N/A')}, SKU Lite: {book.get('sku_lite', 'N/A')}, Title: {book.get('title', 'N/A')}")
         library_json.append(book_to_opds_publication(book))
     return https_fn.Response(json.dumps({
         "library": library_json,
@@ -562,9 +562,10 @@ def book_to_opds_publication(book):
             "name": book["authors"][0].get("name"),
             "sortAs": book["authors"][0].get("name")
         }
+    if "sku_lite" in book:
+        publication["metadata"]["identifier"] = book["sku_lite"]
     if "asin" in book:
         publication["metadata"]["identifier"] = book["asin"]
-        publication["links"][0]["href"] = f"https://www.audible.com/pd/{book['asin']}"
     if "language" in book:
         publication["metadata"]["language"] = book["language"]
     if "purchase_date" in book:
