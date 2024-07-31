@@ -473,7 +473,7 @@ def ffmpeg_info_to_json(ffmpeg_info, library_data):
     if library_data["release_date"]:
         result['year'] = library_data["release_date"].split("-")[0]
     if library_data['merchandising_summary']:
-        result['description'] = library_data['merchandising_summary']
+        result['description'] = library_data['merchandising_summary'].replace('<p>', '').replace('</p>', '')
     if library_data['title']:
         result['title'] = library_data['title']
     if library_data['subtitle']:
@@ -482,6 +482,11 @@ def ffmpeg_info_to_json(ffmpeg_info, library_data):
         result["abridged"] = False
     if library_data['sku_lite']:
         result['sku'] = library_data['sku_lite']
+    if library_data['language']:
+        result['language'] = library_data['language']
+    if library_data['publication_datetime']:
+        result['published'] = library_data['publication_datetime']
+
     
     # Extract bitrate
     bitrate = re.search(r'bitrate: (\d+) kb/s', ffmpeg_info)

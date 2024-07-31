@@ -19,7 +19,7 @@ if (ENV != "TEST") {
 let BUCKET_NAME = process.env.BUCKET_NAME
 let APP_URL = process.env.APP_URL
 let API_KEY = process.env.API_KEY
-let TEST_SKU = "BK_ADBL_000007"
+let TEST_SKU = "BK_ADBL_000007"//"BK_RAND_002735"//
 
 chai.use(chaiHttp);
 const expect = chai.expect;

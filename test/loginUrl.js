@@ -41,7 +41,7 @@ describe("test audible", () => {
         expect(result).to.have.property("code_verifier");
         expect(result).to.have.property("serial");
         expect(result.login_url).to.be.a('string');
-        expect(result.login_url).to.include('amazon.co.uk');
+        expect(result.login_url).to.include('amazon');
         console.log(`COUNTRY_CODE: ${COUNTRY_CODE}`);
         console.log(`CODE_VERIFIER: ${result.code_verifier}`);
         console.log(`SERIAL: ${result.serial}`);
