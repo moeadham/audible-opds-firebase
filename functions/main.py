@@ -352,10 +352,20 @@ def get_download_link(license_response):
 
 def download_file(url, filename):
     headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
+    logger.info(f"Download progress for {filename}: 0%")
     with httpx.stream("GET", url, headers=headers) as r:
+        total_size = int(r.headers.get('content-length', 0))
+        bytes_downloaded = 0
+        last_logged_progress = 0
         with open(filename, "wb") as f:
-            for chunck in r.iter_bytes():
-                f.write(chunck)
+            for chunk in r.iter_bytes(chunk_size=8192):
+                f.write(chunk)
+                bytes_downloaded += len(chunk)
+                progress = (bytes_downloaded / total_size) * 100 if total_size > 0 else 0
+                if progress - last_logged_progress >= 25:
+                    logger.info(f"Download progress for {filename}: {progress:.2f}%")
+                    last_logged_progress = progress
+    logger.info(f"Download completed for {filename}")
     return filename
 
 @https_fn.on_request(region="europe-west1", memory=4096, timeout_sec=540, concurrency=1)
