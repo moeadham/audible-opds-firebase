@@ -19,8 +19,10 @@ if (ENV != "TEST") {
 let BUCKET_NAME = process.env.BUCKET_NAME
 let APP_URL = process.env.APP_URL
 let API_KEY = process.env.API_KEY
-let TEST_ASIN = "B072LK1GSN"//"B0711P9C1V"//"B08DJC7DQV"
-
+let TEST_SKU = "BK_HOWE_007172" // NM
+// "BK_HOWE_007172" // NM
+// "BK_ADBL_000007"// SC
+// "BK_RAND_002735"// RP1
 chai.use(chaiHttp);
 const expect = chai.expect;
 
@@ -61,7 +63,7 @@ describe("test audible", () => {
       .send({
         country_code: "ca",
         auth: authData,
-        asin: TEST_ASIN,
+        sku: TEST_SKU,
         bucket: BUCKET_NAME,
         path: `UserData/uid/Uploads/AudibleRaw/`,
       });
@@ -78,8 +80,11 @@ describe("test audible", () => {
     expect(result.download_status).to.be.a("string");
     expect(result).to.have.property("aaxc_path");
     expect(result.aaxc_path).to.be.a("string");
-    expect(result.aaxc_path).to.include(`${TEST_ASIN}.aaxc`);
+    expect(result.aaxc_path).to.include(`${TEST_SKU}.aaxc`);
     expect(result).to.have.property("metadata");
+    expect(result).to.have.property("key");
+    expect(result).to.have.property("iv");
+    expect(result).to.have.property("licence_rules");
     expect(result.metadata).to.be.an('object');
     expect(result.metadata).to.have.property('title');
     expect(result.metadata).to.have.property('author').that.is.an('array');

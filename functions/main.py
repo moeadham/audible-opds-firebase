@@ -161,7 +161,7 @@ class Authenticator(audible.Authenticator):
     ):
         auth = cls()
         auth.locale = country_code
-
+        print(f"response_url: {response_url}")
         response_url = httpx.URL(response_url)
         parsed_url = parse_qs(response_url.query.decode())
         authorization_code = parsed_url["openid.oa2.authorization_code"][0]
@@ -221,13 +221,13 @@ def get_local_file_dir():
     os.makedirs('bin/downloads/', exist_ok=True)
     return "bin/downloads/"
 
-def upload_to_storage(bucket_name, path, asin, extension):
+def upload_to_storage(bucket_name, path, sku, extension):
     bucket = storage.bucket(bucket_name)
     # Find the downloaded file
-    local_file_path = f'{get_local_file_dir()}{asin}{extension}'
+    local_file_path = f'{get_local_file_dir()}{sku}{extension}'
     
     # Create the full path in the storage bucket
-    blob = bucket.blob(f'{path}{asin}{extension}')
+    blob = bucket.blob(f'{path}{sku}{extension}')
     print(f"Uploading {local_file_path} to {blob.name}")
     blob.upload_from_filename(local_file_path)
     # Check if the blob exists after upload
@@ -254,9 +254,9 @@ def get_ffmpeg_path():
     else:
         return f"{get_local_file_dir()}ffmpeg"
 
-def convert_aaxc_to_m4b(asin, key, iv):
+def get_ffmpeg_info(sku):
     ffmpeg = get_ffmpeg_path()
-    command = [ffmpeg, '-y', '-audible_key', key, '-audible_iv', iv, '-i', f"{get_local_file_dir()}{asin}.aaxc", '-codec', 'copy', f"{get_local_file_dir()}{asin}.m4b"]
+    command = [ffmpeg, '-i', f"{get_local_file_dir()}{sku}.aaxc", '-f', 'ffmetadata', '-hide_banner']
     print(f"Running command: {command}")
     result = subprocess.run(
             command, 
@@ -265,20 +265,9 @@ def convert_aaxc_to_m4b(asin, key, iv):
         env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
     return result
 
-def get_ffmpeg_info(asin):
+def get_ffmpeg_art(sku):
     ffmpeg = get_ffmpeg_path()
-    command = [ffmpeg, '-i', f"{get_local_file_dir()}{asin}.m4b", '-f', 'ffmetadata', '-hide_banner']
-    print(f"Running command: {command}")
-    result = subprocess.run(
-            command, 
-        capture_output=True, 
-        text=True, 
-        env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
-    return result
-
-def get_ffmpeg_art(asin):
-    ffmpeg = get_ffmpeg_path()
-    command = [ffmpeg, '-y', '-i', f"{get_local_file_dir()}{asin}.m4b", '-an', '-vcodec', 'copy', f"{get_local_file_dir()}{asin}.jpg", '-hide_banner']
+    command = [ffmpeg, '-y', '-i', f"{get_local_file_dir()}{sku}.aaxc", '-an', '-vcodec', 'copy', f"{get_local_file_dir()}{sku}.jpg", '-hide_banner']
     print(f"Running command: {command}")
     result = subprocess.run(
             command, 
@@ -352,10 +341,20 @@ def get_download_link(license_response):
 
 def download_file(url, filename):
     headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
+    logger.info(f"Download progress for {filename}: 0%")
     with httpx.stream("GET", url, headers=headers) as r:
+        total_size = int(r.headers.get('content-length', 0))
+        bytes_downloaded = 0
+        last_logged_progress = 0
         with open(filename, "wb") as f:
-            for chunck in r.iter_bytes():
-                f.write(chunck)
+            for chunk in r.iter_bytes(chunk_size=8192):
+                f.write(chunk)
+                bytes_downloaded += len(chunk)
+                progress = (bytes_downloaded / total_size) * 100 if total_size > 0 else 0
+                if progress - last_logged_progress >= 25:
+                    logger.info(f"Download progress for {filename}: {progress:.2f}%")
+                    last_logged_progress = progress
+    logger.info(f"Download completed for {filename}")
     return filename
 
 @https_fn.on_request(region="europe-west1", memory=4096, timeout_sec=540, concurrency=1)
@@ -363,7 +362,7 @@ def download_file(url, filename):
 def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
     logger.info(f"Starting audible_download_aaxc function")
     auth_data = req.get_json().get("auth", {})
-    asin = req.get_json().get("asin")
+    sku = req.get_json().get("sku")
     bucket_name = req.get_json().get("bucket")
     path = req.get_json().get("path")
 
@@ -376,74 +375,64 @@ def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
     logger.debug(f"Creating Audible client with provided auth data")
     auth = audible.Authenticator.from_dict(auth_data)
     client = audible.Client(auth)
-    logger.info(f"Fetching library for ASIN: {asin}")
+    logger.info(f"Fetching library for SKU: {sku}")
     books = client.get(
         path="library",
         params={"response_groups": "product_attrs", "num_results": "999"},
     )
-    book = next((book for book in books['items'] if book['asin'] == asin), None)
+    book = next((book for book in books['items'] if book['sku_lite'] == sku), None)
     if not book:
-        logger.error(f"Book with ASIN {asin} not found in the library")
+        logger.error(f"Book with sku_lite {sku} not found in the library")
         return https_fn.Response(json.dumps({
-            "message": f"Book with ASIN {asin} not found in the library",
+            "message": f"Book with sku_lite {sku} not found in the library",
             "status": "error"
         }), status=404, content_type="application/json")
+    asin = book['asin']
     logger.info(f"Getting license response for ASIN: {asin}")
     lr = get_license_response(client, asin, quality="High")
     if lr:
         logger.debug(f"License response received for ASIN: {asin}")
         dl_link = get_download_link(lr)
-        filename = f"{get_local_file_dir()}{asin}.aaxc"
+        filename = f"{get_local_file_dir()}{sku}.aaxc"
         logger.info(f"Downloading file from: {dl_link}")
         status = download_file(dl_link, filename)
         logger.debug(f"Downloaded file: {status}")
         logger.info(f"Decrypting voucher for ASIN: {asin}")
         decrypted_voucher = decrypt_voucher_from_licenserequest(auth, lr)
-        logger.info(f"Downloading FFmpeg binary from bucket: {bucket_name}")
-        download_ffmpeg_binary(bucket_name)
-        logger.info(f"Converting aaxc to m4b for ASIN: {asin}")
-        convert_result = convert_aaxc_to_m4b(asin, decrypted_voucher["key"], decrypted_voucher["iv"])
-        if convert_result.returncode != 0:
-            logger.error(f"Error converting aaxc to m4b: {convert_result.stderr}")
-            return https_fn.Response(json.dumps({
-                "message": f"Error converting aaxc to m4b: {convert_result.stderr}",
-                "status": "error"
-            }), status=500, content_type="application/json")
-        logger.info(f"Uploading m4b file to storage")
-        m4b_blob = upload_to_storage(bucket_name, path, asin, ".m4b")
+        logger.info(f"Decrypted voucher: {decrypted_voucher}")
         logger.info(f"Uploading aaxc file to storage")
-        aaxc_blob = upload_to_storage(bucket_name, path, asin, ".aaxc")
-
-        logger.info("Generating metadata from m4b info and Audible details")
-        ffmpeg_info_result = get_ffmpeg_info(asin)
+        aaxc_blob = upload_to_storage(bucket_name, path, sku, ".aaxc")
+        logger.info("Generating metadata from aaxc info and Audible details")
+        ffmpeg_info_result = get_ffmpeg_info(sku)
         metadata = ffmpeg_info_to_json(ffmpeg_info_result.stderr, book)
         # Write metadata to JSON file
         try:
-            with open(f"{get_local_file_dir()}{asin}.json", 'w') as metadata_file:
+            with open(f"{get_local_file_dir()}{sku}.json", 'w') as metadata_file:
                 json.dump(metadata, metadata_file, indent=2)
-            logger.debug(f"Metadata successfully written to {asin}.json")
+            logger.debug(f"Metadata successfully written to {sku}.json")
         except IOError as e:
             logger.error(f"Error writing metadata to file: {str(e)}")
-        json_blob = upload_to_storage(bucket_name, path, asin, ".json")
+        json_blob = upload_to_storage(bucket_name, path, sku, ".json")
 
-        get_ffmpeg_art(asin)
-        art_blob = upload_to_storage(bucket_name, path, asin, ".jpg")
+        get_ffmpeg_art(sku)
+        art_blob = upload_to_storage(bucket_name, path, sku, ".jpg")
 
-        if m4b_blob.exists() and aaxc_blob.exists() and json_blob.exists() and art_blob.exists():
-            logger.info(f"Successfully processed and uploaded files for ASIN: {asin}")
+        if aaxc_blob.exists() and aaxc_blob.exists() and json_blob.exists() and art_blob.exists():
+            logger.info(f"Successfully processed and uploaded files for SKU: {sku}")
             return https_fn.Response(json.dumps({
                 "message": "Audible file downloaded and uploaded successfully",
                 "status": "success",
                 "download_status": status,
                 "aaxc_path": filename,
-                "licence": decrypted_voucher,
-                "m4b_path": m4b_blob.name,
+                "key": decrypted_voucher["key"],
+                "iv": decrypted_voucher["iv"],
+                "licence_rules": decrypted_voucher["rules"],
                 "metadata": metadata
             }), content_type="application/json")
     else:
-        logger.error(f"Error getting license response for ASIN: {asin}")
+        logger.error(f"Error getting license response for SKU: {sku}")
         return https_fn.Response(json.dumps({
-            "message": f"Error getting license response for {asin}",
+            "message": f"Error getting license response for {sku}",
             "status": "error"
         }), status=500, content_type="application/json")
 
@@ -472,15 +461,20 @@ def ffmpeg_info_to_json(ffmpeg_info, library_data):
     if library_data["release_date"]:
         result['year'] = library_data["release_date"].split("-")[0]
     if library_data['merchandising_summary']:
-        result['description'] = library_data['merchandising_summary']
+        result['description'] = library_data['merchandising_summary'].replace('<p>', '').replace('</p>', '')
     if library_data['title']:
         result['title'] = library_data['title']
     if library_data['subtitle']:
         result['subtitle'] = library_data['subtitle']
     if library_data['format_type'] == 'unabridged':
         result["abridged"] = False
-    if library_data['asin']:
-        result['asin'] = library_data['asin']
+    if library_data['sku_lite']:
+        result['sku'] = library_data['sku_lite']
+    if library_data['language']:
+        result['language'] = library_data['language']
+    if library_data['publication_datetime']:
+        result['published'] = library_data['publication_datetime']
+
     
     # Extract bitrate
     bitrate = re.search(r'bitrate: (\d+) kb/s', ffmpeg_info)
