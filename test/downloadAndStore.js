@@ -82,6 +82,9 @@ describe("test audible", () => {
     expect(result.aaxc_path).to.be.a("string");
     expect(result.aaxc_path).to.include(`${TEST_SKU}.aaxc`);
     expect(result).to.have.property("metadata");
+    expect(result).to.have.property("key");
+    expect(result).to.have.property("iv");
+    expect(result).to.have.property("licence_rules");
     expect(result.metadata).to.be.an('object');
     expect(result.metadata).to.have.property('title');
     expect(result.metadata).to.have.property('author').that.is.an('array');

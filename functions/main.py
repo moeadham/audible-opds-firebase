@@ -161,7 +161,7 @@ class Authenticator(audible.Authenticator):
     ):
         auth = cls()
         auth.locale = country_code
-
+        print(f"response_url: {response_url}")
         response_url = httpx.URL(response_url)
         parsed_url = parse_qs(response_url.query.decode())
         authorization_code = parsed_url["openid.oa2.authorization_code"][0]
@@ -254,20 +254,9 @@ def get_ffmpeg_path():
     else:
         return f"{get_local_file_dir()}ffmpeg"
 
-def convert_aaxc_to_m4b(sku, key, iv):
-    ffmpeg = get_ffmpeg_path()
-    command = [ffmpeg, '-y', '-audible_key', key, '-audible_iv', iv, '-i', f"{get_local_file_dir()}{sku}.aaxc", '-codec', 'copy', f"{get_local_file_dir()}{sku}.m4b"]
-    print(f"Running command: {command}")
-    result = subprocess.run(
-            command, 
-        capture_output=True, 
-        text=True, 
-        env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
-    return result
-
 def get_ffmpeg_info(sku):
     ffmpeg = get_ffmpeg_path()
-    command = [ffmpeg, '-i', f"{get_local_file_dir()}{sku}.m4b", '-f', 'ffmetadata', '-hide_banner']
+    command = [ffmpeg, '-i', f"{get_local_file_dir()}{sku}.aaxc", '-f', 'ffmetadata', '-hide_banner']
     print(f"Running command: {command}")
     result = subprocess.run(
             command, 
@@ -278,7 +267,7 @@ def get_ffmpeg_info(sku):
 
 def get_ffmpeg_art(sku):
     ffmpeg = get_ffmpeg_path()
-    command = [ffmpeg, '-y', '-i', f"{get_local_file_dir()}{sku}.m4b", '-an', '-vcodec', 'copy', f"{get_local_file_dir()}{sku}.jpg", '-hide_banner']
+    command = [ffmpeg, '-y', '-i', f"{get_local_file_dir()}{sku}.aaxc", '-an', '-vcodec', 'copy', f"{get_local_file_dir()}{sku}.jpg", '-hide_banner']
     print(f"Running command: {command}")
     result = subprocess.run(
             command, 
@@ -410,22 +399,10 @@ def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
         logger.debug(f"Downloaded file: {status}")
         logger.info(f"Decrypting voucher for ASIN: {asin}")
         decrypted_voucher = decrypt_voucher_from_licenserequest(auth, lr)
-        logger.info(f"Downloading FFmpeg binary from bucket: {bucket_name}")
-        download_ffmpeg_binary(bucket_name)
-        logger.info(f"Converting aaxc to m4b for SKU: {sku}")
-        convert_result = convert_aaxc_to_m4b(sku, decrypted_voucher["key"], decrypted_voucher["iv"])
-        if convert_result.returncode != 0:
-            logger.error(f"Error converting aaxc to m4b: {convert_result.stderr}")
-            return https_fn.Response(json.dumps({
-                "message": f"Error converting aaxc to m4b: {convert_result.stderr}",
-                "status": "error"
-            }), status=500, content_type="application/json")
-        logger.info(f"Uploading m4b file to storage")
-        m4b_blob = upload_to_storage(bucket_name, path, sku, ".m4b")
+        logger.info(f"Decrypted voucher: {decrypted_voucher}")
         logger.info(f"Uploading aaxc file to storage")
         aaxc_blob = upload_to_storage(bucket_name, path, sku, ".aaxc")
-
-        logger.info("Generating metadata from m4b info and Audible details")
+        logger.info("Generating metadata from aaxc info and Audible details")
         ffmpeg_info_result = get_ffmpeg_info(sku)
         metadata = ffmpeg_info_to_json(ffmpeg_info_result.stderr, book)
         # Write metadata to JSON file
@@ -440,15 +417,16 @@ def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
         get_ffmpeg_art(sku)
         art_blob = upload_to_storage(bucket_name, path, sku, ".jpg")
 
-        if m4b_blob.exists() and aaxc_blob.exists() and json_blob.exists() and art_blob.exists():
+        if aaxc_blob.exists() and aaxc_blob.exists() and json_blob.exists() and art_blob.exists():
             logger.info(f"Successfully processed and uploaded files for SKU: {sku}")
             return https_fn.Response(json.dumps({
                 "message": "Audible file downloaded and uploaded successfully",
                 "status": "success",
                 "download_status": status,
                 "aaxc_path": filename,
-                "licence": decrypted_voucher,
-                "m4b_path": m4b_blob.name,
+                "key": decrypted_voucher["key"],
+                "iv": decrypted_voucher["iv"],
+                "licence_rules": decrypted_voucher["rules"],
                 "metadata": metadata
             }), content_type="application/json")
     else:
