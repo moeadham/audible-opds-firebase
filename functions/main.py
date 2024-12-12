@@ -236,12 +236,16 @@ def upload_to_storage(bucket_name, path, sku, extension):
     return blob
 
 def download_ffmpeg_binary(bucket_name):
+    local_ffmpeg_path = f"{get_local_file_dir()}ffmpeg"
+    # Check if ffmpeg already exists locally
+    if os.path.exists(local_ffmpeg_path):
+        print(f"FFmpeg binary already exists at {local_ffmpeg_path}")
+        return True
     bucket = storage.bucket(bucket_name)
     ffmpeg_blob = bucket.blob('bin/ffmpeg')
     if not ffmpeg_blob.exists():
         print("FFmpeg binary not found in the bucket")
         return False
-    local_ffmpeg_path = f"{get_local_file_dir()}ffmpeg"
     ffmpeg_blob.download_to_filename(local_ffmpeg_path)
     # Make the downloaded file executable
     os.chmod(local_ffmpeg_path, 0o755)
@@ -357,7 +361,14 @@ def download_file(url, filename):
     logger.info(f"Download completed for {filename}")
     return filename
 
-@https_fn.on_request(region="europe-west1", memory=4096, timeout_sec=540, concurrency=1)
+@https_fn.on_request(
+        region="europe-west1",
+        memory=8192,
+        cpu=2,
+        timeout_sec=540,
+        concurrency=10,
+        max_instances=100
+    )
 @require_api_key
 def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
     logger.info(f"Starting audible_download_aaxc function")
@@ -399,6 +410,8 @@ def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
         logger.debug(f"Downloaded file: {status}")
         logger.info(f"Decrypting voucher for ASIN: {asin}")
         decrypted_voucher = decrypt_voucher_from_licenserequest(auth, lr)
+        logger.info(f"Downloading FFmpeg binary from bucket: {bucket_name}")
+        download_ffmpeg_binary(bucket_name)
         logger.info(f"Decrypted voucher: {decrypted_voucher}")
         logger.info(f"Uploading aaxc file to storage")
         aaxc_blob = upload_to_storage(bucket_name, path, sku, ".aaxc")
