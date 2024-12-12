@@ -19,7 +19,8 @@ if (ENV != "TEST") {
 let BUCKET_NAME = process.env.BUCKET_NAME
 let APP_URL = process.env.APP_URL
 let API_KEY = process.env.API_KEY
-let TEST_SKU = "BK_HOWE_007172" // NM
+let TEST_SKU = "BK_HARP_003837" // The Hard Thing About Hard Things
+//"BK_HOWE_007172" // NM
 // "BK_HOWE_007172" // NM
 // "BK_ADBL_000007"// SC
 // "BK_RAND_002735"// RP1

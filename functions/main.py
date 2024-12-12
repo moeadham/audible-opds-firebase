@@ -258,27 +258,46 @@ def get_ffmpeg_path():
     else:
         return f"{get_local_file_dir()}ffmpeg"
 
-def get_ffmpeg_info(sku):
+def get_ffmpeg_info(sku, retry=0):
+    if retry >= 3:
+        error_msg = f"Failed to get ffmpeg info after {retry} attempts"
+        print(error_msg)
+        raise RuntimeError(error_msg)
+        
     ffmpeg = get_ffmpeg_path()
     command = [ffmpeg, '-i', f"{get_local_file_dir()}{sku}.aaxc", '-f', 'ffmetadata', '-hide_banner']
     print(f"Running command: {command}")
-    result = subprocess.run(
-            command, 
-        capture_output=True, 
-        text=True, 
-        env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
-    return result
+    
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
+        return result
+    except Exception as e:
+        print(f"Attempt {retry + 1} failed. Error: {str(e)}")
+        return get_ffmpeg_info(sku, retry + 1)
 
-def get_ffmpeg_art(sku):
+def get_ffmpeg_art(sku, retry=0):
+    if retry >= 3:
+        error_msg = f"Failed to get ffmpeg art after {retry} attempts"
+        print(error_msg)
+        raise RuntimeError(error_msg)
+        
     ffmpeg = get_ffmpeg_path()
     command = [ffmpeg, '-y', '-i', f"{get_local_file_dir()}{sku}.aaxc", '-an', '-vcodec', 'copy', f"{get_local_file_dir()}{sku}.jpg", '-hide_banner']
     print(f"Running command: {command}")
-    result = subprocess.run(
+    try:
+        result = subprocess.run(
             command, 
-        capture_output=True, 
-        text=True, 
-        env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
-    return result
+            capture_output=True, 
+            text=True, 
+            env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
+        return result
+    except Exception as e:
+        print(f"Attempt {retry + 1} failed. Error: {str(e)}")
+        return get_ffmpeg_art(sku, retry + 1)
 
 
 @https_fn.on_request(region="europe-west1")
@@ -427,10 +446,13 @@ def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
             logger.error(f"Error writing metadata to file: {str(e)}")
         json_blob = upload_to_storage(bucket_name, path, sku, ".json")
 
-        get_ffmpeg_art(sku)
-        art_blob = upload_to_storage(bucket_name, path, sku, ".jpg")
+        try:
+            get_ffmpeg_art(sku)
+            upload_to_storage(bucket_name, path, sku, ".jpg")
+        except Exception as e:
+            logger.warning(f"Error extracting or uploading cover art for {sku}: {str(e)}")
 
-        if aaxc_blob.exists() and aaxc_blob.exists() and json_blob.exists() and art_blob.exists():
+        if aaxc_blob.exists() and aaxc_blob.exists() and json_blob.exists():
             logger.info(f"Successfully processed and uploaded files for SKU: {sku}")
             return https_fn.Response(json.dumps({
                 "message": "Audible file downloaded and uploaded successfully",
