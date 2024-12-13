@@ -161,7 +161,7 @@ class Authenticator(audible.Authenticator):
     ):
         auth = cls()
         auth.locale = country_code
-        print(f"response_url: {response_url}")
+        logger.debug(f"response_url: {response_url}")
         response_url = httpx.URL(response_url)
         parsed_url = parse_qs(response_url.query.decode())
         authorization_code = parsed_url["openid.oa2.authorization_code"][0]
@@ -228,28 +228,28 @@ def upload_to_storage(bucket_name, path, sku, extension):
     
     # Create the full path in the storage bucket
     blob = bucket.blob(f'{path}{sku}{extension}')
-    print(f"Uploading {local_file_path} to {blob.name}")
+    logger.debug(f"Uploading {local_file_path} to {blob.name}")
     blob.upload_from_filename(local_file_path)
     # Check if the blob exists after upload
-    print(f"Checking if blob {blob.name} exists:")
-    print(blob.exists())
+    logger.debug(f"Checking if blob {blob.name} exists:")
+    logger.debug(blob.exists())
     return blob
 
 def download_ffmpeg_binary(bucket_name):
     local_ffmpeg_path = f"{get_local_file_dir()}ffmpeg"
     # Check if ffmpeg already exists locally
     if os.path.exists(local_ffmpeg_path):
-        print(f"FFmpeg binary already exists at {local_ffmpeg_path}")
+        logger.debug(f"FFmpeg binary already exists at {local_ffmpeg_path}")
         return True
     bucket = storage.bucket(bucket_name)
     ffmpeg_blob = bucket.blob('bin/ffmpeg')
     if not ffmpeg_blob.exists():
-        print("FFmpeg binary not found in the bucket")
+        logger.debug("FFmpeg binary not found in the bucket")
         return False
     ffmpeg_blob.download_to_filename(local_ffmpeg_path)
     # Make the downloaded file executable
     os.chmod(local_ffmpeg_path, 0o755)
-    print(f"FFmpeg binary downloaded to {local_ffmpeg_path}")
+    logger.debug(f"FFmpeg binary downloaded to {local_ffmpeg_path}")
     return True
 
 def get_ffmpeg_path():
@@ -261,12 +261,12 @@ def get_ffmpeg_path():
 def get_ffmpeg_info(sku, retry=0):
     if retry >= 3:
         error_msg = f"Failed to get ffmpeg info after {retry} attempts"
-        print(error_msg)
+        logger.debug(error_msg)
         raise RuntimeError(error_msg)
         
     ffmpeg = get_ffmpeg_path()
     command = [ffmpeg, '-i', f"{get_local_file_dir()}{sku}.aaxc", '-f', 'ffmetadata', '-hide_banner']
-    print(f"Running command: {command}")
+    logger.debug(f"Running command: {command}")
     
     try:
         result = subprocess.run(
@@ -276,18 +276,18 @@ def get_ffmpeg_info(sku, retry=0):
             env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
         return result
     except Exception as e:
-        print(f"Attempt {retry + 1} failed. Error: {str(e)}")
+        logger.debug(f"Attempt {retry + 1} failed. Error: {str(e)}")
         return get_ffmpeg_info(sku, retry + 1)
 
 def get_ffmpeg_art(sku, retry=0):
     if retry >= 3:
         error_msg = f"Failed to get ffmpeg art after {retry} attempts"
-        print(error_msg)
+        logger.debug(error_msg)
         raise RuntimeError(error_msg)
         
     ffmpeg = get_ffmpeg_path()
     command = [ffmpeg, '-y', '-i', f"{get_local_file_dir()}{sku}.aaxc", '-an', '-vcodec', 'copy', f"{get_local_file_dir()}{sku}.jpg", '-hide_banner']
-    print(f"Running command: {command}")
+    logger.debug(f"Running command: {command}")
     try:
         result = subprocess.run(
             command, 
@@ -296,7 +296,7 @@ def get_ffmpeg_art(sku, retry=0):
             env={**os.environ, 'CONFIG_DIR_ENV': 'audible-cli'})
         return result
     except Exception as e:
-        print(f"Attempt {retry + 1} failed. Error: {str(e)}")
+        logger.debug(f"Attempt {retry + 1} failed. Error: {str(e)}")
         return get_ffmpeg_art(sku, retry + 1)
 
 
@@ -326,7 +326,7 @@ def dev_upload_ffmpeg(req: https_fn.Request) -> https_fn.Response:
         }), content_type="application/json")
 
     except Exception as e:
-        print(f"Error uploading FFmpeg binary: {str(e)}")
+        logger.debug(f"Error uploading FFmpeg binary: {str(e)}")
         return https_fn.Response(json.dumps({
             "message": f"Error uploading FFmpeg binary: {str(e)}",
             "status": "error"
@@ -352,7 +352,7 @@ def get_license_response(client, asin, quality):
         )
         return response
     except Exception as e:
-        print(f"Error: {e}")
+        logger.debug(f"Error: {e}")
         return
 
 
@@ -382,10 +382,10 @@ def download_file(url, filename):
 
 @https_fn.on_request(
         region="europe-west1",
-        memory=8192,
-        cpu=2,
+        memory=4096,
+        cpu=1,
         timeout_sec=540,
-        concurrency=10,
+        concurrency=2,
         max_instances=100
     )
 @require_api_key
@@ -450,7 +450,7 @@ def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
             get_ffmpeg_art(sku)
             upload_to_storage(bucket_name, path, sku, ".jpg")
         except Exception as e:
-            logger.warning(f"Error extracting or uploading cover art for {sku}: {str(e)}")
+            logger.warn(f"Error extracting or uploading cover art for {sku}: {str(e)}")
 
         if aaxc_blob.exists() and aaxc_blob.exists() and json_blob.exists():
             logger.info(f"Successfully processed and uploaded files for SKU: {sku}")
@@ -553,16 +553,21 @@ def audible_get_library(req: https_fn.Request) -> https_fn.Response:
         sort_by="-PurchaseDate"
     )
     
+    
     library_json = []
 
     for book in library["items"]:
-        if request_type != "raw":
-                print(f"ASIN: {book.get('asin', 'N/A')}, SKU: {book.get('sku', 'N/A')}, SKU Lite: {book.get('sku_lite', 'N/A')}, Title: {book.get('title', 'N/A')}")
+        content_type = book.get('content_delivery_type', 'Unknown')
+        if content_type in ['SinglePartBook', 'MultiPartBook']:
+            if request_type != "raw":
+                logger.debug(f"ASIN: {book.get('asin', 'N/A')}, SKU: {book.get('sku', 'N/A')}, SKU Lite: {book.get('sku_lite', 'N/A')}, Title: {book.get('title', 'N/A')}")
                 library_json.append(book_to_opds_publication(book))
+            else:
+                # Remove any null keys from the book dictionary
+                book = {k: v for k, v in book.items() if v is not None}
+                library_json.append(book)
         else:
-            # Remove any null keys from the book dictionary
-            book = {k: v for k, v in book.items() if v is not None}
-            library_json.append(book)
+            logger.warn(f"Skipping book {book.get('title', 'N/A')} with content type {content_type}")
     return https_fn.Response(json.dumps({
         "library": library_json,
         "status": "success"
