@@ -382,8 +382,8 @@ def download_file(url, filename):
 
 @https_fn.on_request(
         region="europe-west1",
-        memory=4096,
-        cpu=1,
+        memory=8192,
+        cpu=2,
         timeout_sec=540,
         concurrency=2,
         max_instances=100
@@ -410,6 +410,7 @@ def audible_download_aaxc(req: https_fn.Request) -> https_fn.Response:
         path="library",
         params={"response_groups": "product_attrs", "num_results": "999"},
     )
+    logger.info(f"Found {len(books['items'])} books in library")
     book = next((book for book in books['items'] if book['sku_lite'] == sku), None)
     if not book:
         logger.error(f"Book with sku_lite {sku} not found in the library")
