@@ -8,7 +8,7 @@ chai.use(chaiHttp);
 const expect = chai.expect;
 const APP_URL = process.env.APP_URL;
 const API_KEY = process.env.API_KEY;
-const COUNTRY_CODE = process.env.COUNTRY_CODE || "ca";
+const COUNTRY_CODE = process.env.COUNTRY_CODE || "uk";
 describe("test audible", () => {
     it(`test get_login_url with wrong API key`, async () => {
         const response = await chai

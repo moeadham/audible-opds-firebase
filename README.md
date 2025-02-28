@@ -6,9 +6,9 @@ A simple firebase-functions based app to create an OPDS feed from a users audibl
 
 Setup python and install dependencies
 ```
-brew install ffmpeg
+brew install ffmpeg python3.12
 cd functions
-python3 -m venv venv
+python3.12 -m venv venv
 ./pip.sh
 ```
 
